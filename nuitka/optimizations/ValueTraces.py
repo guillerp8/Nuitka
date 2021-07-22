@@ -313,6 +313,12 @@ class ValueTraceEscaped(ValueTraceUnknown):
         if self.merge_usage_count <= 2:
             self.previous.addMergeUsage()
 
+    def mustHaveValue(self):
+        return self.previous.mustHaveValue()
+
+    def mustNotHaveValue(self):
+        return self.previous.mustNotHaveValue()
+
 
 class ValueTraceAssign(ValueTraceBase):
     __slots__ = ("assign_node", "replace_it")

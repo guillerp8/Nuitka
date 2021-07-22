@@ -162,6 +162,10 @@ class LocalsDictHandleBase(object):
     def isFunctionScope():
         return False
 
+    @staticmethod
+    def isUnoptimizedFunctionScope():
+        return False
+
     def getProvidedVariables(self):
         return self.providing.values()
 
@@ -424,10 +428,6 @@ class LocalsDictFunctionHandle(LocalsDictHandleBase):
     @staticmethod
     def isFunctionScope():
         return True
-
-    @staticmethod
-    def isUnoptimizedFunctionScope():
-        return False
 
 
 class GlobalsDictHandle(LocalsDictHandleBase):

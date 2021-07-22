@@ -384,6 +384,20 @@ class TraceCollectionBase(object):
 
             self.markCurrentVariableTrace(variable, version)
 
+    def markActiveVariableAsUnknown(self, variable):
+        current = self.getVariableCurrentTrace(variable=variable)
+
+        if not current.isUnknownTrace():
+            version = variable.allocateTargetNumber()
+
+            self.addVariableTrace(
+                variable,
+                version,
+                ValueTraceUnknown(owner=self.owner, previous=current),
+            )
+
+            self.markCurrentVariableTrace(variable, version)
+
     def markActiveVariableAsLoopMerge(
         self, loop_node, current, variable, shapes, incomplete
     ):
@@ -406,12 +420,19 @@ class TraceCollectionBase(object):
 
         return result
 
-    def markActiveVariablesAsUnknown(self):
+    def markActiveVariablesAsEscaped(self):
         for variable in self.getActiveVariables():
             if variable.isTempVariable():
                 continue
 
             self.markActiveVariableAsEscaped(variable)
+
+    def markActiveVariablesAsUnknown(self):
+        for variable in self.getActiveVariables():
+            if variable.isTempVariable():
+                continue
+
+            self.markActiveVariableAsUnknown(variable)
 
     @staticmethod
     def signalChange(tags, source_ref, message):
@@ -456,9 +477,7 @@ class TraceCollectionBase(object):
 
         for variable in self.getActiveVariables():
             if variable.isModuleVariable():
-                # print variable
-
-                self.markActiveVariableAsEscaped(variable)
+                self.markActiveVariableAsUnknown(variable)
 
             elif variable.isLocalVariable():
                 if variable.hasAccessesOutsideOf(self.owner) is not False:
@@ -466,7 +485,10 @@ class TraceCollectionBase(object):
 
     def removeKnowledge(self, node):
         if node.isExpressionVariableRef():
-            self.markActiveVariableAsEscaped(node.variable)
+            if node.variable.isModuleVariable():
+                self.markActiveVariableAsUnknown(node.variable)
+            else:
+                self.markActiveVariableAsEscaped(node.variable)
 
     def onValueEscapeStr(self, node):
         # TODO: We can ignore these for now.
@@ -493,6 +515,8 @@ class TraceCollectionBase(object):
         # Add a new trace, allocating a new version for the variable, and
         # remember the delete of the current
         old_trace = self.getVariableCurrentTrace(variable)
+
+        # TODO: Annotate value content as escaped.
 
         variable_trace = ValueTraceDeleted(
             owner=self.owner, del_node=del_node, previous=old_trace
@@ -523,7 +547,10 @@ class TraceCollectionBase(object):
         return result
 
     def onVariableContentEscapes(self, variable):
-        self.markActiveVariableAsEscaped(variable)
+        if variable.isModuleVariable():
+            self.markActiveVariableAsUnknown(variable)
+        else:
+            self.markActiveVariableAsEscaped(variable)
 
     def onExpression(self, expression, allow_none=False):
         if expression is None and allow_none:
@@ -608,6 +635,30 @@ class TraceCollectionBase(object):
 
         # Need to compute the replacement still.
         new_expression = expression.computeExpression(self)
+
+        if new_expression[0] is not expression:
+            # Signal intermediate result as well.
+            self.signalChange(change_tags, expression.getSourceReference(), change_desc)
+
+            return new_expression
+        else:
+            return expression, change_tags, change_desc
+
+    def computedExpressionResultRaw(self, expression, change_tags, change_desc):
+        """Make sure the replacement expression is computed.
+
+        Use this when a replacement expression needs to be seen by the trace
+        collection and be computed, without causing any duplication, but where
+        otherwise there would be loss of annotated effects.
+
+        This may e.g. be true for nodes that need an initial run to know their
+        exception result and type shape.
+
+        This is for raw, i.e. subnodes are not yet computed automatically.
+        """
+
+        # Need to compute the replacement still.
+        new_expression = expression.computeExpressionRaw(self)
 
         if new_expression[0] is not expression:
             # Signal intermediate result as well.
